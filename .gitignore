@@ -1,0 +1,12 @@
+# Created by .ignore support plugin (hsz.mobi)
+### Scala template
+
+*.class
+*.log
+
+/src/main/scala/com/ddxtanx/youcanautomateme/instances/*Instance.scala
+/src/main/scala/com/ddxtanx/youcanautomateme/Main.scala
+
+/target
+/project/target
+/.idea
