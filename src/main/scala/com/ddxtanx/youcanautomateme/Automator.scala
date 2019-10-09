@@ -35,31 +35,29 @@ class Automator[F[_]: Monad](link: String, client: Client[F], nextButtonClass: S
     accumulat(List(), l)
   }
   private def getSlotSpecWeek(startDate: LocalDate, cal: String, ini: String, time: Time): F[Option[String]] = {
+
     val url = s"$link/$calUrlPart?cal=$cal&ini=$ini&jumpDate=${defDateFormat.format(startDate)}"
-    val mondayMillis: Long = startDate.toEpochDay * 24 * 60 * 60 * 1000
-    val correction: Long = 18000000
-    val youcanbookMondayMillis = mondayMillis + correction
-    // Youcanbook seems to be 18,000,000 milliseconds ahead for some reason
-    val timeMillis: Long = {
+    def monToDayMillis(mondayMillis: Long): Long = {
       val ampmMillis = if(!time.ampm) 12 * 60 * 60 * 1000 else 0
       val dayMillis = time.dotw * 24 * 60 * 60 * 1000
       val hrMillis = time.hr * 60 * 60 * 1000
       val minMillis = time.min * 60 * 1000
-      dayMillis + youcanbookMondayMillis + ampmMillis + hrMillis + minMillis
+      dayMillis + mondayMillis + ampmMillis + hrMillis + minMillis
     }
     for{
       page <- browser.getPage(url, defaultHeaders, Map())
     } yield{
-      //println(page)
+      val mondayElem = ((page >> elementList(".gridDayMon")).head>> elementList(".gridSlot")).head
+      val mondayMillis = mondayElem.attr("id").replace("grid", "").toLong - 10*60*60*1000
+      val timeMillis = monToDayMillis(mondayMillis)
       val htmlId: String = s"#grid$timeMillis"
-      //println(htmlId)
       val elem: Element = page >> element(htmlId)
       val busy = elem.attr("class").contains("gridBusy")
       //println(s"$startDate $time $busy")
       if(busy) None else Some(page >> attr("href")(s"#button-$timeMillis"))
     }
   }
-  private def getTimeSlotLinks(t: Time, weeksToDo: Int = 4): F[List[String]] = {
+  private def getTimeSlotLinks(t: Time, weeksToDo: Int = 10): F[List[String]] = {
     for{
       page <- browser.getPage(link, defaultHeaders, Map())
       cal = page >> attr("value")("input[name=cal]")
@@ -68,7 +66,7 @@ class Automator[F[_]: Monad](link: String, client: Client[F], nextButtonClass: S
         val a: Element = (page >> elementList(nextButtonClass)).head
         a.attr("href").replaceAll(".*&jumpDate=", "")
       }
-      shifts = Stream.from(-7, 7).take(weeksToDo).toList
+      shifts = Stream.from(7, 7).take(weeksToDo).toList
       nextWeekDate: LocalDate = LocalDate.parse(startNextWeek, defDateFormat)
       dates: List[LocalDate] = shifts.map(nextWeekDate.plusDays(_))
       listSlots: List[F[Option[String]]] = dates.map(getSlotSpecWeek(_, cal, ini, t))
@@ -93,8 +91,10 @@ class Automator[F[_]: Monad](link: String, client: Client[F], nextButtonClass: S
       } yield ()
     }
     for{
+      _ <- println(s"Booking $guest for $t!").pure[F]
       reqs <- getTimeSlotLinks(t)
       resps <- reqs.traverse(reserveForSlot)
+      _ <- println(s"Successfully booked $guest at $t!").pure[F]
     } yield ()
   }
 
@@ -102,6 +102,7 @@ class Automator[F[_]: Monad](link: String, client: Client[F], nextButtonClass: S
     val times: List[Time] = r.times
     for{
       resps <- times.traverse(reserveGuestForSlots(r.guest, _))
+      _ <- println(s"Finished signing up $r!").pure[F]
     } yield ()
   }
 
